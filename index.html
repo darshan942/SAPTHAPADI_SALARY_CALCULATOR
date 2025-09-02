@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SAPTHAPADI ENTERPRICES - Salary Calculator</title>
+
+  <!-- jsPDF (UMD) and AutoTable plugin -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    :root{--accent:#3498db;--dark:#2c3e50}
+    body{font-family:Inter, system-ui, -apple-system, Arial, sans-serif;background:#f4f7fb;margin:0;padding:24px;color:#222}
+    .page{max-width:980px;margin:18px auto}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    header img{height:64px;width:64px;object-fit:contain;border-radius:8px;background:#fff;padding:6px;box-shadow:0 2px 6px rgba(0,0,0,0.06)}
+    header h1{font-size:20px;margin:0;color:var(--dark)}
+    .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 18px rgba(32,40,50,0.06)}
+    .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+    .controls > *{flex:1 1 180px}
+    input[type=file]{padding:6px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:10px;border:1px solid #e6e9ef;text-align:center}
+    th{background:var(--dark);color:#fff}
+    tfoot td{font-weight:700}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button.btn{background:var(--accent);color:#fff;border:none;padding:10px 12px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#6c7a89}
+    input[type=number],input[type=text]{padding:8px;border-radius:6px;border:1px solid #d0d7e0;width:100%;box-sizing:border-box}
+    .small{font-size:13px;color:#666}
+    .center{display:flex;align-items:center;gap:12px}
+    .logo-uploader{display:flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <img id="siteLogo" src="logo.png" alt="Company Logo" onerror="this.style.opacity=0.25"/>
+      <div>
+        <h1>SAPTHAPADI ENTERPRICES</h1>
+        <div class="small">Salary Calculator — add multiple employees, calculate totals &amp; download a PDF report (with logo)</div>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="controls">
+        <div class="logo-uploader">
+          <label class="small">Upload Logo</label>
+          <input id="logoInput" type="file" accept="image/*" />
+        </div>
+        <div>
+          <label class="small">Default hourly rate (optional)</label>
+          <input id="defaultRate" type="number" placeholder="e.g. 250" />
+        </div>
+        <div>
+          <label class="small">Notes for report (optional)</label>
+          <input id="reportNotes" type="text" placeholder="E.g. Month: August 2025" />
+        </div>
+      </div>
+
+      <table id="employeeTable" aria-describedby="tableDesc">
+        <caption id="tableDesc" class="small">Enter employees below. Click "Calculate Salaries" to update Salary column.</caption>
+        <thead>
+          <tr>
+            <th>Employee Name</th>
+            <th>Hours Worked</th>
+            <th>Hourly Rate</th>
+            <th>Salary</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><input type="text" placeholder="Enter name" value="" /></td>
+            <td><input type="number" placeholder="Hours" min="0" step="0.25" /></td>
+            <td><input type="number" placeholder="Rate" min="0" step="0.01" /></td>
+            <td class="salary">0.00</td>
+            <td><button class="btn secondary" onclick="removeRow(this)">Remove</button></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right">Total</td>
+            <td id="totalSalary">0.00</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="actions">
+        <button class="btn" onclick="addRow()">➕ Add Employee</button>
+        <button class="btn" onclick="calculateSalaries()">💰 Calculate Salaries</button>
+        <button class="btn" onclick="downloadPDF()">📥 Download PDF Report</button>
+        <button class="btn secondary" onclick="downloadCSV()">📤 Download CSV</button>
+      </div>
+
+      <div style="margin-top:12px" class="small">Tip: you can upload a logo or place <code>logo.png</code> next to this file; uploaded logo will be used for the PDF.</div>
+    </div>
+  </div>
+
+  <script>
+    // --- helpers and state ---
+    let logoDataUrl = null; // will store uploaded logo as data URL if provided
+
+    const logoInput = document.getElementById('logoInput');
+    const siteLogo = document.getElementById('siteLogo');
+
+    logoInput.addEventListener('change', async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        logoDataUrl = reader.result;
+        siteLogo.src = logoDataUrl;
+        siteLogo.style.opacity = 1;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // --- table management ---
+    function addRow(sample = {}) {
+      const tbody = document.querySelector('#employeeTable tbody');
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td><input type="text" placeholder="Enter name" value="${escapeHtml(sample.name || '')}" /></td>
+        <td><input type="number" placeholder="Hours" min="0" step="0.25" value="${sample.hours ?? ''}" /></td>
+        <td><input type="number" placeholder="Rate" min="0" step="0.01" value="${sample.rate ?? ''}" /></td>
+        <td class="salary">0.00</td>
+        <td><button class="btn secondary" onclick="removeRow(this)">Remove</button></td>
+      `;
+      tbody.appendChild(row);
+    }
+
+    function removeRow(button) {
+      const row = button.parentElement.parentElement;
+      row.remove();
+      updateTotalDisplay();
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, function (m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]; });
+    }
+
+    function calculateSalaries() {
+      const rows = document.querySelectorAll('#employeeTable tbody tr');
+      const defaultRate = parseFloat(document.getElementById('defaultRate').value) || 0;
+      let total = 0;
+      rows.forEach(row => {
+        const hoursInput = row.cells[1].querySelector('input');
+        const rateInput = row.cells[2].querySelector('input');
+        const salaryCell = row.querySelector('.salary');
+
+        const hours = parseFloat(hoursInput.value) || 0;
+        const rate = parseFloat(rateInput.value) || (defaultRate || 0);
+        const salary = hours * rate;
+        salaryCell.textContent = salary.toFixed(2);
+        total += salary;
+      });
+      document.getElementById('totalSalary').textContent = total.toFixed(2);
+    }
+
+    function updateTotalDisplay(){
+      // helper if rows removed without pressing calculate
+      const salaries = document.querySelectorAll('.salary');
+      let total = 0;
+      salaries.forEach(s=>{ total += parseFloat(s.textContent) || 0 });
+      document.getElementById('totalSalary').textContent = total.toFixed(2);
+    }
+
+    // CSV download (simple, useful test-case like output)
+    function downloadCSV(){
+      calculateSalaries();
+      const rows = Array.from(document.querySelectorAll('#employeeTable tbody tr'));
+      const csv = [ ['Employee Name','Hours Worked','Hourly Rate','Salary'] ];
+      rows.forEach(r=>{
+        const name = r.cells[0].querySelector('input').value || '';
+        const hours = r.cells[1].querySelector('input').value || '0';
+        const rate = r.cells[2].querySelector('input').value || '0';
+        const salary = r.cells[3].textContent || '0';
+        csv.push([name,hours,rate,salary]);
+      });
+      csv.push(['Total','','', document.getElementById('totalSalary').textContent || '0']);
+      const csvContent = csv.map(r => r.map(cell => '"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\n');
+      const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'Salary_Report.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+
+    // --- PDF generation ---
+    async function downloadPDF(){
+      // Ensure we calculated salaries first
+      calculateSalaries();
+
+      // Robust detection of jsPDF constructor (works across several builds/versions)
+      const JsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || (typeof jspdf !== 'undefined' && jspdf.jsPDF) || null;
+      if (!JsPDFConstructor) {
+        alert('Could not find jsPDF library. Make sure the jspdf script is loaded.');
+        return;
+      }
+
+      const doc = new JsPDFConstructor({unit:'pt', format:'a4'});
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // Add logo if available (uploaded takes precedence)
+      try{
+        let imgSrc = logoDataUrl || 'logo.png';
+        if (imgSrc){
+          // load image and draw it; if not found we'll catch and continue
+          const img = await loadImageAsDataURL(imgSrc);
+          // choose image format
+          const mime = (img.substr(5,5) === 'image') ? img.substring(5, img.indexOf(';')) : 'image/png';
+          const format = img.startsWith('data:image/jpeg') || img.startsWith('data:image/jpg') ? 'JPEG' : 'PNG';
+          doc.addImage(img, format, 40, 36, 72, 72);
+        }
+      } catch (e) {
+        // If logo load fails, we silently continue — PDF will still be generated
+        console.warn('Logo could not be loaded for PDF:', e);
+      }
+
+      // Header text
+      doc.setFontSize(14);
+      doc.text('SAPTHAPADI ENTERPRICES', pageWidth / 2, 60, {align: 'center'});
+      const notes = document.getElementById('reportNotes').value || '';
+      if (notes) doc.setFontSize(10).text(notes, pageWidth / 2, 76, {align: 'center'});
+
+      // Prepare table rows
+      const pdfRows = [];
+      document.querySelectorAll('#employeeTable tbody tr').forEach(row => {
+        const name = row.cells[0].querySelector('input').value || '-';
+        const hours = row.cells[1].querySelector('input').value || '0';
+        const rate = row.cells[2].querySelector('input').value || '0';
+        const salary = row.cells[3].textContent || '0';
+        pdfRows.push([name, hours, rate, salary]);
+      });
+
+      // Add total row to PDF data
+      const total = document.getElementById('totalSalary').textContent || '0';
+      pdfRows.push(['', '', 'Total', total]);
+
+      // Use autoTable if available on this doc instance
+      if (typeof doc.autoTable === 'function'){
+        doc.autoTable({
+          startY: 110,
+          head: [['Employee Name','Hours Worked','Hourly Rate','Salary']],
+          body: pdfRows,
+          styles: {cellPadding: 6, fontSize: 10},
+          headStyles: {fillColor: [44,62,80]},
+          footStyles: {fillColor: [240,240,240]},
+        });
+      } else {
+        // Fallback: render a very simple table-like layout if autoTable is not present
+        let y = 110;
+        doc.setFontSize(10);
+        doc.text('Employee Name', 40, y);
+        doc.text('Hours', 300, y);
+        doc.text('Rate', 380, y);
+        doc.text('Salary', 460, y);
+        y += 14;
+        pdfRows.forEach(r => {
+          doc.text(String(r[0]), 40, y);
+          doc.text(String(r[1]), 300, y);
+          doc.text(String(r[2]), 380, y);
+          doc.text(String(r[3]), 460, y);
+          y += 14;
+          if (y > doc.internal.pageSize.getHeight() - 40){ doc.addPage(); y = 40; }
+        });
+      }
+
+      doc.save('Salary_Report.pdf');
+    }
+
+    // small util: load image URL or data URL and return dataURL string (works for relative paths too)
+    function loadImageAsDataURL(src){
+      return new Promise((resolve, reject) => {
+        // if it's already a data URL, just return it
+        if (typeof src === 'string' && src.startsWith('data:')) return resolve(src);
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try{
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img,0,0);
+            const dataURL = canvas.toDataURL('image/png');
+            resolve(dataURL);
+          } catch(err){
+            reject(err);
+          }
+        };
+        img.onerror = (e) => reject(new Error('Failed to load image: '+src));
+        img.src = src;
+      });
+    }
+
+    // Pre-populate one example row so it's easy to test immediately (keeps original empty row too)
+    addRow({name:'A. Kumar', hours:40, rate:250});
+    addRow({name:'R. Sharma', hours:32.5, rate:300});
+
+  </script>
+</body>
+</html>
